@@ -91,9 +91,6 @@ def cleanTokens(word_tokenize):
     # Apstrādāt gadījumus, kur simboli - . un skaitļus
     cleanTokens = [re.sub(r'[.:/_-]', ' ', word) if word not in preservedWords else word for word in cleanTokens]
 
-    # Apstrādāt gadījumus, kur lieliem burtiem iepriekš seko cipars, piem., M4A4
-    cleanTokens = [re.sub(r'(\d)\s+([A-Z])', r'\1\2', word_tokenize) for word_tokenize in cleanTokens]
-
     # Izņemt ārā skaitļus
     cleanTokens = [re.sub(r'^[0-9]*$', '', word_tokenize) for word_tokenize in cleanTokens]
 
@@ -103,20 +100,32 @@ def cleanTokens(word_tokenize):
     #Izņemt ārā tukšās rindas
     cleanTokens = [word for word in cleanTokens if word.strip() != '']
 
-    #Izņemt ārā daudzu vārdu atstarpes, piem., 'Silver Bullets Gaming' ==> 'Silver /n Bullets /n Gaming /n'
-    cleanTokens = [re.sub(r' ', '\n', word) if word not in preservedWords else word for word in cleanTokens]
+    return ''.join(cleanTokens)
 
-
-    # Izvadīt katru token (kam ir atstarpes) savā rindā
-    return '\n'.join(cleanTokens)
-
+def frequency(data):
+    frequency = {}
+    
+    for item in data:
+        clean_item = {key: cleanTokens(str(value)) if isinstance(value, str) else value for key, value in item.items()}
+        
+        for value in clean_item.values():
+            if value in frequency:
+                frequency[value] += 1
+            else:
+                frequency[value] = 1
+    
+    sorted_items = sorted(frequency.items(), key=lambda x: x[1], reverse=True)
+    
+    with open('frequency.txt', 'w') as file:
+        for value, freq in sorted_items:
+            file.write(f'{freq} {value}\n')
 
 def extract_values(data, output_file):
     values = set()
     for entry in data:
         values.update(entry.values())
 
-    # Izņemt ārā tokenu 'None', kas ir datu trūkumu apzīmējums.
+    # Izņemt ārā tokenu 'None', kas veido NoneType py error.
     values = [value for value in values if value is not None]
 
     # Sakārtot alfabētiski
