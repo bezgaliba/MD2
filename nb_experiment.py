@@ -13,6 +13,7 @@ from nltk import FreqDist
 from sklearn.model_selection import KFold
 from sklearn.metrics import classification_report
 from sklearn.metrics import confusion_matrix
+from collections import defaultdict
 import xml.etree.ElementTree as ET
 import spacy_udpipe
 
@@ -45,26 +46,70 @@ def start(fileName):
 
         # Katru xml tagu kā jaunu rindu
         for modality, domain, text in data:
-            # Noņemt nost simbolus (normalizēšana)
+            # Noņemt nost simbolus (teksta normalizēšana)
             text = re.sub(r'\W+', ' ', text)  
-            # Visus burtu samazināt lielumu(lowercase)
+            # Visus burtu samazināt lielumu(lowercase teksta normalizēšana)
             text = text.lower()  
-            # Ja ir daudz tukšās vietas, aizstāt ar vienu
+            # Ja ir daudz tukšās vietas, aizstāt ar vienu (teksta normalizēšana)
             text = re.sub(r'\s+', ' ', text) 
             # Ierakstīt rindu failā, bet modality un domain top par vienu klasifikatoru
             file.write(f'{modality} {domain}\t{text}\n')
 
-            tokens = nltk.word_tokenize(text)
-            
-            # Izrēķināt tokenu absolūto biežumu
-            freq_dist = FreqDist(tokens)
-            
-            # Ierakstīt tokenu absolūto biežumu fail formātā 'FREQUENCY_VALUE'  'TOKEN'
-    with open('frequency.tsv', 'w', encoding='utf-8') as freq_file:
-        for token, freq in freq_dist.items():
-            freq_file.write(f'{freq}\t{token}\n')
+    token_freqs = token_frequencies(data)
 
-    print("TSV fails veiksmīgi izveidots")
+    # Ierakstīt tokenu absolūtos biežumus failā formātā 'FREQUENCY_VALUE'  'TOKEN'
+    with open('frequency.tsv', 'w', encoding='utf-8') as freq_file:
+        sorted_freqs = sorted(token_freqs.items(), key=lambda x: x[1], reverse=True) 
+        for token, freq in sorted_freqs:
+            if token.strip(): # Pārbaudīt, vai tokens nesastāv no tukšuma
+                freq_file.write(f'{freq}\t{token}\n')
+    print("TSV fails", fileName,"veiksmīgi izveidots. Kā arī biežuma fails - frequency.tsv")
+
+def token_frequencies(data):
+    token_freqs = defaultdict(int)
+    
+    for modality, domain, text in data:
+        tokens = nltk.word_tokenize(text)
+        
+        for token in tokens:
+            normalized_token = normalize_token(token)
+            token_freqs[normalized_token] += 1
+    
+    return token_freqs
+
+def normalize_token(token):
+    # Noņemt nost simbolus (tokenu normalizēšana)
+    token = re.sub(r'\W+', ' ', token)
+    # Visus burtu samazināt lielumu(lowercase tokenu normalizēšana)
+    token = token.lower()
+    # Ja ir daudz tukšās vietas, aizstāt ar vienu (tokenu normalizēšana)
+    token = re.sub(r'\s+', ' ', token)
+    return token
+
+def initialise(stop_txt, freq_tsv):
+	global stoplist
+	stoplist = set()
+
+	with open(stop_txt, encoding='utf-8') as txt:
+		for word in txt:
+			stoplist.add(normalize_text(word.strip()))
+
+	print("[I] Word stoplist is read (" + str(len(stoplist)) + ").")
+
+	global whitelist
+	whitelist = set()
+
+	with open(freq_tsv, encoding='utf-8') as tsv:
+		for entry in tsv:
+			freq, word = entry.strip().split("\t")
+
+			if int(freq) < 3:  # TODO: experiment with the threshold
+				# Ignore the long tail - 2/3 of words occure less than N times
+				continue
+
+			whitelist.add(normalize_text(word))
+
+	print("[I] Word whitelist is read (" + str(len(whitelist)) + ").")
 
 def read_data(file):
     data_set = []
@@ -179,3 +224,56 @@ def validate_accuracy(train_data, test_data):
     silver_result = [nb.classify(t) for t in test_featuresets]
 
     return [accuracy], gold_result, silver_result
+
+def run():
+    with open("nb_classifier.pickle", "rb") as dmp:
+        nb = pickle.load(dmp)
+
+    print("[I] NB classifier loaded from a file.")
+
+    while True:
+        message = input("\nEnter a text:\n")
+
+        if len(message) == 0:
+            break
+
+        features = vectorize_text(message)
+        topic = nb.prob_classify(features)
+
+        print("\n{0}\n".format(list(features.keys())))
+
+        for t in topic.samples():
+            print("{0}: {1:.3f}".format(t, topic.prob(t)))
+
+        print("\nGuess: " + nb.classify(features))
+
+def read_data_classifier(file):
+    data_set = []
+
+    with open(file, encoding='utf-8') as data:
+        for entry in data:
+            label, text = entry.strip().split("\t")
+            featureset = vectorize_text(text)
+            data_set.append((featureset, label))
+
+    return data_set
+
+def vectorize_text(text):
+    features = {}
+    words = nltk.word_tokenize(text)
+    for word in words:
+        features[word] = True
+    return features
+
+def train_classifier(file):
+    # Nolasīt .tsv datus
+    train_data = read_data_classifier(file)
+
+    # Trenēt Naive Bayes classifier, izmantojot klasifikatoru kolonnu
+    nb = nltk.NaiveBayesClassifier.train(train_data)
+
+    # Saglabāt klases PICKLE failā
+    with open("nb_classifier.pickle", "wb") as pickle_file:
+        pickle.dump(nb, pickle_file)
+
+    print("[I] NB classifier trained and saved to nb_classifier.pickle")
