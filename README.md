@@ -17,9 +17,11 @@
 ## Secinājumi | Rezultātu novērtēšana
 
 Uztrenēto modeļu precizitāte:
-  ![image](https://github.com/bezgaliba/MD2/assets/74833724/3625e5e0-1f77-42a0-9a5f-5e32c975a5f8)
+ ![image](https://github.com/bezgaliba/MD2/assets/74833724/23467e5b-8482-4e78-91db-6ade7ff6bf70)
 
 Nolasot no attēla rādītājus, mana uztrenēta modeļa veiktspējas precizitāte ir ļoti zema, nozīmē, ka mēdz tekstu klasificēt biežāk nekorekti, nekā korekti. Lai uzlabotu šo rādītāju, īpaši priekš latviešu valodas, būtu jāpārskata 'feature engineering' paradokss.
 Confusion matricas modelis, izmantojot 5-fold:
-![image](https://github.com/bezgaliba/MD2/assets/74833724/4ea7927d-e0a5-4fc4-8ac8-99278915e34a)
+
+![image](https://github.com/bezgaliba/MD2/assets/74833724/0bbdf505-b943-41d7-ad11-51aef84b73af)
+
 
