@@ -1,5 +1,3 @@
-#!/usr/local/bin/python3
-
 import os
 import sys
 import nltk
@@ -9,36 +7,79 @@ import numpy
 import json
 import pickle
 import datetime
+import random
+import spacy
+from nltk import FreqDist
 from sklearn.model_selection import KFold
 from sklearn.metrics import classification_report
 from sklearn.metrics import confusion_matrix
+import xml.etree.ElementTree as ET
+import spacy_udpipe
 
+# TODO: atrast LV lemmatizēšanas bibliotēku
 
-def initialise(stop_txt, freq_tsv):
-	global stoplist
-	stoplist = set()
+# def lemmatize_text(text):
+#     nlp = spacy_udpipe.load("lv")
+#     doc = nlp(text)
+#     lemmas = [token.lemma_ for token in doc]
+#     return " ".join(lemmas)
 
-	with open(stop_txt) as txt:
-		for word in txt:
-			stoplist.add(normalize_text(word.strip()))
+def start(fileName):
+    # Nolasīt visus datus no XML faila
+    tree = ET.parse('LVMED-Transcripts-900.xml')
+    root = tree.getroot()
 
-	print("[I] Word stoplist is read (" + str(len(stoplist)) + ").")
+    # Izvilkt katra <doc> atribūtu un tekstu kopu
+    data = []
+    for doc in root.findall('doc'):
+        modality = doc.attrib.get('modality')
+        domain = doc.attrib.get('domain')
+        text = doc.text.strip() if doc.text else ''
+        ## lemmatized_text = lemmatize_text(text)  # Teksta lemmatizācija, kura nestrādā, jo nesekmīgi atrasta LV bibliotēka.
+        data.append((modality, domain, text)) ## Ja izdara TODO, tad: text ---> (jāaizstāj ar) lemmatized_text
 
-	global whitelist
-	whitelist = set()
+    # Izveidot jaunu .tsv ar UTF-8 kodējumu LV burtiem
+    with open(fileName, 'w', encoding='utf-8') as file:
+        # Galvenes izveidošana
+        file.write('Modality-Domain\tText\n')
 
-	with open(freq_tsv) as tsv:
-		for entry in tsv:
-			freq, word = entry.strip().split("\t")
+        # Katru xml tagu kā jaunu rindu
+        for modality, domain, text in data:
+            # Noņemt nost simbolus (normalizēšana)
+            text = re.sub(r'\W+', ' ', text)  
+            # Visus burtu samazināt lielumu(lowercase)
+            text = text.lower()  
+            # Ja ir daudz tukšās vietas, aizstāt ar vienu
+            text = re.sub(r'\s+', ' ', text) 
+            # Ierakstīt rindu failā, bet modality un domain top par vienu klasifikatoru
+            file.write(f'{modality} {domain}\t{text}\n')
 
-			if int(freq) < 3:  # TODO: experiment with the threshold
-				# Ignore the long tail - 2/3 of words occure less than N times
-				continue
+            tokens = nltk.word_tokenize(text)
+            
+            # Izrēķināt tokenu absolūto biežumu
+            freq_dist = FreqDist(tokens)
+            
+            # Ierakstīt tokenu absolūto biežumu fail formātā 'FREQUENCY_VALUE'  'TOKEN'
+    with open('frequency.tsv', 'w', encoding='utf-8') as freq_file:
+        for token, freq in freq_dist.items():
+            freq_file.write(f'{freq}\t{token}\n')
 
-			whitelist.add(normalize_text(word))
+    print("TSV fails veiksmīgi izveidots")
 
-	print("[I] Word whitelist is read (" + str(len(whitelist)) + ").")
+def read_data(file):
+    data_set = []
 
+    with open(file, encoding='utf-8') as data:
+        for entry in data:
+            topics, text = entry.strip().split("\t")
+
+            for topic in topics.split('.'):
+                topic = topic.strip()
+                featureset = vectorize_text(text)
+                label = topic
+                data_set.append((featureset, label))
+
+    return data_set
 
 def normalize_text(text):
 	text = text.lower()
@@ -50,9 +91,9 @@ def normalize_text(text):
 def normalize_vector(vector):
 	words = list(vector.keys())
 
-	for w in words:
-		if w in stoplist or len(w) == 1 or w not in whitelist:
-			vector.pop(w)
+	# for w in words:
+	# 	if w in stoplist or len(w) == 1 or w not in whitelist:
+	# 		vector.pop(w)
 
 	return vector
 
@@ -60,154 +101,81 @@ def normalize_vector(vector):
 def vectorize_text(text):
 	return normalize_vector({word: True for word in nltk.word_tokenize(normalize_text(text))})
 
-
-def read_data(file):
-	data_set = {}  # topic => annotated examples
-
-	with open(file) as data:
-		for entry in data:
-			topic, text = entry.strip().split("\t")
-
-			sub_set = []
-			if topic in data_set:
-				sub_set = data_set[topic]
-
-			sub_set.append((vectorize_text(text), topic))
-			data_set[topic] = sub_set
-
-	return data_set
-
-
-def join_data(data_set):
-	union = []
-
-	for cat in data_set:
-		union += data_set[cat]
-
-	return union
-
-
-def validate_accuracy(data_set, k):
-	kfold = KFold(n_splits=k, shuffle=True)
-
-	data_split = {}
-
-	for cat in data_set:
-		# K-Fold split for each class to ensure balanced training and test data sets
-		folds = []
-
-		for train, test in kfold.split(data_set[cat]):      # k loops
-			train_data = numpy.array(data_set[cat])[train]  # vs. data[train]
-			test_data = numpy.array(data_set[cat])[test]    # vs. data[test]
-			folds.append({"train": train_data, "test": test_data})
-
-		data_split[cat] = folds
-
-	validations = []
-
-	gold_result = []
-	silver_result = []
-
-	for i in range(k):
-		# Join the training and test data into two respective sets
-		train_data = numpy.array([])
-		test_data = numpy.array([])
-
-		for cat in data_split:
-			if len(train_data) > 0:
-				train_data = numpy.append(train_data, data_split[cat][i]["train"], axis=0)
-			else:
-				train_data = data_split[cat][i]["train"]
-
-			if len(test_data) > 0:
-				test_data = numpy.append(test_data, data_split[cat][i]["test"], axis=0)
-			else:
-				test_data = data_split[cat][i]["test"]
-
-		# Naive Bayes classifier: training and evaluation
-		nb = nltk.NaiveBayesClassifier.train(train_data)
-		validations.append(nltk.classify.accuracy(nb, test_data))
-
-		for t in test_data:
-			gold_result.append(t[1])
-			silver_result.append(nb.classify(t[0]))
-
-	return (validations, gold_result, silver_result)
-
-
 def run_validation(data_path, k, n):
-	print("\n\t" + str(k) + "-fold cross-validation:\n")
+    print("\n\t" + str(k) + "-fold cross-validation:\n")
 
-	iterations = []
-	gold_total = []
-	silver_total = []
+    iterations = []
+    gold_total = []
+    silver_total = []
 
-	start_time = datetime.datetime.now().replace(microsecond=0)
+    start_time = datetime.datetime.now().replace(microsecond=0)
 
-	for i in range(n):
-		validations, gold, silver = validate_accuracy(read_data(data_path), k)
-		iterations.append(numpy.mean(validations))
+    for i in range(n):
+        data_set = read_data(data_path)
+        if len(data_set) < k:
+            print("Insufficient samples for", k, "folds of cross-validation. Using holdout validation instead.")
+            train_data, test_data = splitDataSets(data_set)
+            validations, gold, silver = validate_accuracy(train_data, test_data)
+        else:
+            kf = KFold(n_splits=k, shuffle=True)
+            validations = []
+            gold = []
+            silver = []
+            for train_index, test_index in kf.split(data_set):
+                train_data = [data_set[i] for i in train_index]
+                test_data = [data_set[i] for i in test_index]
+                fold_validations, fold_gold, fold_silver = validate_accuracy(train_data, test_data)
+                validations.extend(fold_validations)
+                gold.extend(fold_gold)
+                silver.extend(fold_silver)
 
-		gold_total += gold
-		silver_total += silver
+        iterations.append(numpy.mean(validations))
 
-		print("\t{0}.\t".format(i+1), end='')
-		for v in validations:
-			print("{0:.2f}  ".format(v), end='')
-		print("\t{0:.0%}".format(numpy.mean(validations)))
+        gold_total += gold
+        silver_total += silver
 
-	end_time = datetime.datetime.now().replace(microsecond=0)
-	print("\n\tTotal validation time: " + str(end_time - start_time))
+        print("\t{0}.\t".format(i+1), end='')
+        for v in validations:
+            print("{0:.2f}  ".format(v), end='')
+        print("\t{0:.0%}".format(numpy.mean(validations)))
 
-	print("\n\tAverage accuracy in {0} iterations: {1:.0%}\n".format(n, numpy.mean(iterations)))
+    end_time = datetime.datetime.now().replace(microsecond=0)
+    print("\n\tTotal validation time: " + str(end_time - start_time))
 
-	print(classification_report(gold_total, silver_total))
+    print("\n\tAverage accuracy in {0} iterations: {1:.0%}\n".format(n, numpy.mean(iterations)))
 
-	print("Confusion matrix:")
-	print(nltk.ConfusionMatrix(gold_total, silver_total))
-	#print(confusion_matrix(gold_total, silver_total))
+    print(classification_report(gold_total, silver_total))
 
+    print("Confusion matrix:")
+    print(nltk.ConfusionMatrix(gold_total, silver_total))
 
-def run_training(data_path, verbose):
-	print("[I] Training an NB classifier...")
+def splitDataSets(data_set, train_ratio=0.6):
+    train_data = []
+    test_data = []
 
-	start_time = datetime.datetime.now().replace(microsecond=0)
+    # Samiksēt datus, lai treniņu/testa dati būtu dažādāki
+    random.shuffle(data_set)
 
-	# The final (production) model is trained by using all available data (train+test)
-	nb = nltk.NaiveBayesClassifier.train(join_data(read_data(data_path)))
+    # Izrēķināt indeksa lielumu, ko datus skaldīt
+    split_index = int(len(data_set) * train_ratio)
 
-	end_time = datetime.datetime.now().replace(microsecond=0)
-	print("[I] Training time: " + str(end_time - start_time))
+    # Saskaldīt datus treniņam/testam.
+    train_data = data_set[:split_index]
+    test_data = data_set[split_index:]
 
-	if verbose:
-		nb.show_most_informative_features(n=100)
+    return train_data, test_data
 
-	dmp = open("nb_classifier.pickle", "wb")
-	pickle.dump(nb, dmp)
-	dmp.close()
+def validate_accuracy(train_data, test_data):
+    nb = nltk.NaiveBayesClassifier.train(train_data)
+    
+    # Atdalīt funkciju komplektu (featureset) un birkas no treniņu datiem
+    test_featuresets = [t[0] for t in test_data]
+    test_labels = [t[1] for t in test_data]
+    
+    # Izrēķināt precizitāti funkciju komplektam (featureset)
+    accuracy = nltk.classify.accuracy(nb, zip(test_featuresets, test_labels))
 
-	print("[I] NB classifier trained and serialised in a file.")
+    gold_result = test_labels
+    silver_result = [nb.classify(t) for t in test_featuresets]
 
-
-def run():
-	dmp = open("nb_classifier.pickle", "rb")
-	nb = pickle.load(dmp)
-	dmp.close()
-
-	print("[I] NB classifier loaded from a file.")
-
-	while True:
-		message = input("\nEnter a text:\n")
-
-		if len(message) == 0:
-			break
-
-		features = vectorize_text(message)
-		topic = nb.prob_classify(features)
-
-		print("\n{0}\n".format(list(features.keys())))
-
-		for t in topic.samples():
-			print("{0}: {1:.3f}".format(t, topic.prob(t)))
-
-		print("\nGuess: " + nb.classify(features))
+    return [accuracy], gold_result, silver_result
