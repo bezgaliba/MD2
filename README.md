@@ -1,5 +1,5 @@
 # MD2 @ Dabiskās valodas apstrāde
-> LU DF, 3. kurss, m.g. 2022/2023 | Māris Kalniņš, mk20126
+> LU DF, 3. kurss, m.g. 2022/2023 | Māris K., mk20126
 
 ## Par Projektu
   Otro mājasdarbu ietvarā, izmantojot lekcijas sniegto kodu un chatgpt asistenci izstrādē, tika izveidots klases atpazinējs. Klase ir kategorija, kuru vārdu iedala. Par cik tika ņemti medicīnas nozares pacientu izmeklēšanas dati, tad šis projekts klasificēs datus medicīnas kontekstā. Ir arī izveidota klašu matrica, izmantojot testa un treniņa dati. Tika izmantota viena datu kopa gan priekš treniņiem, gan priekš testa. Priekš trenēšanas tika izmantoti random 60% data, priekš testu veikšanas - 40% (kodā var nomainīt rindu `train_ratio=0.6`, lai mainītu šo attiecību).
